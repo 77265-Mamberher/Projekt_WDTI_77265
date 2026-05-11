@@ -79,8 +79,32 @@ document.addEventListener("DOMContentLoaded", function() {
         }
 
         if (isValid) {
-            successMessage.style.display = 'block';
-            contactForm.reset();
+            const formData = {
+                firstName: firstName,
+                lastName: lastName,
+                email: email,
+                message: message
+            };
+
+            const apiUrl = 'https://formspree.io/f/xpqbkzqy';
+
+            fetch(apiUrl, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Accept': 'application/json'
+                },
+                body: JSON.stringify(formData)
+            })
+            .then(response => {
+                successMessage.innerText = 'Wiadomość została wysłana i zapisana na serwerze!';
+                successMessage.style.display = 'block';
+                contactForm.reset();
+            })
+            .catch(error => {
+                console.error('Błąd wysyłania:', error);
+                alert('Wystąpił problem z połączeniem, ale próba wysłania została podjęta. Sprawdź konsolę.');
+            });
         }
     });
 
