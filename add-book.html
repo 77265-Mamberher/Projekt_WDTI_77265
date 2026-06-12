@@ -1,0 +1,215 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <title>BookShelf — Dodaj książkę</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com"/>
+  <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@700;900&family=Inter:wght@400;500;600&display=swap" rel="stylesheet"/>
+  <link rel="stylesheet" href="css/style.css"/>
+</head>
+<body>
+
+<nav>
+  <div class="nav-inner">
+    <a class="nav-brand" href="index.html">📚 <span>Book</span>Shelf</a>
+    <span id="nav-user"></span>
+    <span id="nav-admin-badge">ADMIN</span>
+    <button class="nav-btn ghost" id="btn-logout">Wyloguj</button>
+  </div>
+</nav>
+
+<main class="page-wrapper">
+  <div class="container">
+    <a href="index.html" style="color:var(--muted);font-size:.9rem;display:inline-block;margin-bottom:24px">← Wróć</a>
+
+    <div class="form-card">
+      <h2 id="form-title">Dodaj nową książkę</h2>
+
+      <div class="form-group">
+        <label>Tytuł *</label>
+        <input type="text" id="f-title" placeholder="np. Wiedźmin"/>
+      </div>
+
+      <div class="form-group">
+        <label>Opis</label>
+        <textarea id="f-desc" placeholder="Krótki opis fabuły…"></textarea>
+      </div>
+
+      <div class="form-group">
+        <label>Autor *</label>
+        <select id="f-author">
+          <option value="">— wybierz autora —</option>
+        </select>
+        <p class="form-hint">Nie ma autora? <a href="#" id="show-new-author">Dodaj nowego ↓</a></p>
+      </div>
+
+      <!-- Quick add author inline -->
+      <div id="new-author-block" style="display:none; background:var(--surface2); border:1px solid var(--border); border-radius:var(--radius); padding:16px; margin-bottom:20px">
+        <p style="font-size:.85rem;color:var(--muted);margin-bottom:12px">Nowy autor:</p>
+        <div class="form-group" style="margin-bottom:12px">
+          <label>Imię i nazwisko</label>
+          <input type="text" id="new-author-name" placeholder="np. Andrzej Sapkowski"/>
+        </div>
+        <div class="form-group" style="margin-bottom:12px">
+          <label>Bio (opcjonalnie)</label>
+          <textarea id="new-author-bio" rows="2" placeholder="Kilka słów o autorze…"></textarea>
+        </div>
+        <button class="btn btn-ghost" id="btn-save-author">Zapisz autora</button>
+      </div>
+
+      <div class="form-group">
+        <label>Kategoria</label>
+        <select id="f-cat">
+          <option value="">— wybierz —</option>
+        </select>
+      </div>
+
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px">
+        <div class="form-group">
+          <label>Rok wydania</label>
+          <input type="number" id="f-year" min="1000" max="2099" placeholder="2024"/>
+        </div>
+        <div class="form-group">
+          <label>Liczba stron</label>
+          <input type="number" id="f-pages" placeholder="300"/>
+        </div>
+      </div>
+
+      <div class="form-group">
+        <label>ISBN</label>
+        <input type="text" id="f-isbn" placeholder="978-83-…"/>
+      </div>
+
+      <div class="form-group">
+        <label>URL okładki (zdjęcie)</label>
+        <input type="text" id="f-cover" placeholder="https://…"/>
+        <p class="form-hint">Wklej link do zdjęcia okładki (np. z Google Images, Open Library).</p>
+      </div>
+
+      <div id="form-error" class="form-error"></div>
+
+      <div style="display:flex;gap:12px;margin-top:8px">
+        <button class="btn btn-primary" id="btn-submit">Dodaj książkę</button>
+        <a href="index.html" class="btn btn-ghost">Anuluj</a>
+      </div>
+    </div>
+  </div>
+</main>
+
+<script type="module">
+import {
+  db, auth, collection, doc, getDoc, getDocs, addDoc, updateDoc,
+  query, orderBy, serverTimestamp,
+  getCurrentUser, isAdmin, showToast, CATEGORIES
+} from "./js/firebase.js";
+
+const user  = await getCurrentUser();
+const admin = await isAdmin(user);
+if (!user || !admin) { location.href = "index.html"; }
+
+document.getElementById("nav-user").textContent = user.displayName || user.email;
+document.getElementById("nav-admin-badge").style.display = "inline-block";
+document.getElementById("btn-logout").addEventListener("click", async () => {
+  const { signOut } = await import("./js/firebase.js");
+  await signOut(auth);
+  location.href = "index.html";
+});
+
+const catSel = document.getElementById("f-cat");
+CATEGORIES.forEach(c => {
+  const o = document.createElement("option"); o.value = c; o.textContent = c;
+  catSel.appendChild(o);
+});
+
+async function loadAuthors(selectId = null) {
+  const snap = await getDocs(query(collection(db,"authors"), orderBy("name","asc")));
+  const sel  = document.getElementById("f-author");
+  const current = sel.value;
+  sel.innerHTML = `<option value="">— wybierz autora —</option>`;
+  snap.docs.forEach(d => {
+    const o = document.createElement("option");
+    o.value = d.id; o.textContent = d.data().name;
+    sel.appendChild(o);
+  });
+  if (selectId) sel.value = selectId;
+  else if (current) sel.value = current;
+}
+await loadAuthors();
+
+document.getElementById("show-new-author").addEventListener("click", e => {
+  e.preventDefault();
+  const block = document.getElementById("new-author-block");
+  block.style.display = block.style.display === "none" ? "block" : "none";
+});
+
+document.getElementById("btn-save-author").addEventListener("click", async () => {
+  const name = document.getElementById("new-author-name").value.trim();
+  const bio  = document.getElementById("new-author-bio").value.trim();
+  if (!name) { showToast("Podaj imię i nazwisko", "error"); return; }
+  const ref = await addDoc(collection(db,"authors"), { name, bio, createdAt: serverTimestamp() });
+  showToast("Autor zapisany!", "success");
+  document.getElementById("new-author-name").value = "";
+  document.getElementById("new-author-bio").value  = "";
+  document.getElementById("new-author-block").style.display = "none";
+  await loadAuthors(ref.id);
+});
+
+const params  = new URLSearchParams(location.search);
+const editId  = params.get("edit");
+let editBook  = null;
+if (editId) {
+  const snap = await getDoc(doc(db,"books",editId));
+  if (snap.exists()) {
+    editBook = snap.data();
+    document.getElementById("form-title").textContent    = "Edytuj książkę";
+    document.getElementById("btn-submit").textContent    = "Zapisz zmiany";
+    document.getElementById("f-title").value  = editBook.title || "";
+    document.getElementById("f-desc").value   = editBook.description || "";
+    document.getElementById("f-cat").value    = editBook.category || "";
+    document.getElementById("f-year").value   = editBook.year || "";
+    document.getElementById("f-pages").value  = editBook.pages || "";
+    document.getElementById("f-isbn").value   = editBook.isbn || "";
+    document.getElementById("f-cover").value  = editBook.coverUrl || "";
+    // author will be set after load
+    setTimeout(() => { document.getElementById("f-author").value = editBook.authorId || ""; }, 300);
+  }
+}
+
+document.getElementById("btn-submit").addEventListener("click", async () => {
+  const title    = document.getElementById("f-title").value.trim();
+  const authorId = document.getElementById("f-author").value;
+  const errEl    = document.getElementById("form-error");
+
+  if (!title)    { errEl.textContent = "Tytuł jest wymagany."; errEl.style.display="block"; return; }
+  if (!authorId) { errEl.textContent = "Wybierz autora.";      errEl.style.display="block"; return; }
+  errEl.style.display = "none";
+
+  const authorSnap = await getDoc(doc(db,"authors",authorId));
+  const authorName = authorSnap.exists() ? authorSnap.data().name : "";
+
+  const data = {
+    title,
+    authorId, authorName,
+    description: document.getElementById("f-desc").value.trim(),
+    category:    document.getElementById("f-cat").value || "Inne",
+    year:        parseInt(document.getElementById("f-year").value)  || null,
+    pages:       parseInt(document.getElementById("f-pages").value) || null,
+    isbn:        document.getElementById("f-isbn").value.trim() || null,
+    coverUrl:    document.getElementById("f-cover").value.trim() || null,
+  };
+
+  if (editId) {
+    await updateDoc(doc(db,"books",editId), data);
+    showToast("Zaktualizowano!", "success");
+    setTimeout(() => location.href = `book.html?id=${editId}`, 800);
+  } else {
+    data.createdAt = serverTimestamp();
+    const ref = await addDoc(collection(db,"books"), data);
+    showToast("Książka dodana!", "success");
+    setTimeout(() => location.href = `book.html?id=${ref.id}`, 800);
+  }
+});
+</script>
+</body>
+</html>

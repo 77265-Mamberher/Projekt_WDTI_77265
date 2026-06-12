@@ -1,0 +1,166 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <title>BookShelf — Profil autora</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com"/>
+  <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@700;900&family=Inter:wght@400;500;600&display=swap" rel="stylesheet"/>
+  <link rel="stylesheet" href="css/style.css"/>
+</head>
+<body>
+
+<nav>
+  <div class="nav-inner">
+    <a class="nav-brand" href="index.html">📚 <span>Book</span>Shelf</a>
+    <span id="nav-user"></span>
+    <span id="nav-admin-badge">ADMIN</span>
+    <a href="login.html" class="nav-btn ghost" id="btn-login">Zaloguj</a>
+    <button class="nav-btn ghost" id="btn-logout" style="display:none">Wyloguj</button>
+  </div>
+</nav>
+
+<main class="page-wrapper">
+  <div class="container">
+    <a href="index.html" style="color:var(--muted);font-size:.9rem;display:inline-block;margin-bottom:24px">← Wróć do listy</a>
+    <div id="author-root"><div class="loading">Ładowanie</div></div>
+  </div>
+</main>
+
+<script type="module">
+import {
+  db, auth, collection, doc, getDoc, getDocs, updateDoc, deleteDoc,
+  query, where, orderBy, serverTimestamp,
+  getCurrentUser, isAdmin, showToast, getAvgRating, renderStars
+} from "./js/firebase.js";
+
+const params   = new URLSearchParams(location.search);
+const authorId = params.get("id");
+if (!authorId) location.href = "index.html";
+
+const user  = await getCurrentUser();
+const admin = await isAdmin(user);
+
+if (user) {
+  document.getElementById("nav-user").textContent = user.displayName || user.email;
+  document.getElementById("btn-login").style.display  = "none";
+  document.getElementById("btn-logout").style.display = "inline-block";
+  if (admin) document.getElementById("nav-admin-badge").style.display = "inline-block";
+}
+document.getElementById("btn-logout").addEventListener("click", async () => {
+  const { signOut } = await import("./js/firebase.js");
+  await signOut(auth);
+  location.reload();
+});
+
+const authorSnap = await getDoc(doc(db, "authors", authorId));
+if (!authorSnap.exists()) {
+  document.getElementById("author-root").innerHTML =
+    `<div class="empty-state"><div class="emoji">😕</div><p>Autor nie istnieje.</p></div>`;
+} else {
+  const author = { id: authorSnap.id, ...authorSnap.data() };
+
+  const booksSnap = await getDocs(
+    query(collection(db,"books"), where("authorId","==",authorId), orderBy("createdAt","desc"))
+  );
+  const books = await Promise.all(booksSnap.docs.map(async d => {
+    const { avg, count } = await getAvgRating(d.id);
+    return { id: d.id, ...d.data(), avg, count };
+  }));
+
+  const initials = author.name.split(" ").map(w=>w[0]).join("").slice(0,2).toUpperCase();
+
+  document.getElementById("author-root").innerHTML = `
+    <!-- Author header -->
+    <div class="author-header">
+      <div class="author-avatar">${initials}</div>
+      <div>
+        <h1 style="margin-bottom:4px">${author.name}</h1>
+        <div class="author-stats">
+          <div class="author-stat">
+            <span class="num">${books.length}</span>
+            <span class="lbl">książek</span>
+          </div>
+        </div>
+        ${admin ? `
+          <div style="display:flex;gap:8px;margin-top:14px;flex-wrap:wrap">
+            <button class="btn btn-ghost" id="btn-edit-author">✏️ Edytuj autora</button>
+            <button class="btn btn-danger" id="btn-delete-author">🗑 Usuń autora</button>
+          </div>` : ""}
+      </div>
+    </div>
+
+    ${author.bio ? `
+      <p style="color:var(--muted);max-width:640px;line-height:1.75;margin-bottom:32px">${author.bio}</p>
+    ` : ""}
+
+    <!-- Edit author form (hidden by default) -->
+    ${admin ? `
+    <div id="edit-author-form" style="display:none;background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);padding:24px;max-width:500px;margin-bottom:32px">
+      <h3 style="margin-bottom:16px">Edytuj autora</h3>
+      <div class="form-group">
+        <label>Imię i nazwisko</label>
+        <input type="text" id="ea-name" value="${author.name}"/>
+      </div>
+      <div class="form-group">
+        <label>Bio</label>
+        <textarea id="ea-bio" rows="3">${author.bio || ""}</textarea>
+      </div>
+      <div style="display:flex;gap:8px">
+        <button class="btn btn-primary" id="btn-save-author">Zapisz</button>
+        <button class="btn btn-ghost" id="btn-cancel-edit">Anuluj</button>
+      </div>
+    </div>` : ""}
+
+    <hr class="divider"/>
+    <h2 style="margin-bottom:24px">Książki autora</h2>
+
+    <div id="author-books">
+      ${books.length === 0
+        ? `<div class="empty-state"><div class="emoji">📭</div><p>Brak książek tego autora.</p></div>`
+        : `<div class="books-grid">
+            ${books.map(b => `
+              <div class="book-card" onclick="location.href='book.html?id=${b.id}'">
+                <div class="book-cover">
+                  ${b.coverUrl
+                    ? `<img src="${b.coverUrl}" alt="${b.title}" loading="lazy"/>`
+                    : `<span class="no-cover">📖</span>`}
+                </div>
+                <div class="book-info">
+                  <div class="book-category">${b.category || "Inne"}</div>
+                  <div class="book-title">${b.title}</div>
+                  ${b.count ? renderStars(b.avg, b.count) : `<span style="color:var(--muted);font-size:.8rem">Brak ocen</span>`}
+                </div>
+              </div>`).join("")}
+          </div>`}
+    </div>
+  `;
+
+  document.getElementById("btn-edit-author")?.addEventListener("click", () => {
+    document.getElementById("edit-author-form").style.display = "block";
+  });
+  document.getElementById("btn-cancel-edit")?.addEventListener("click", () => {
+    document.getElementById("edit-author-form").style.display = "none";
+  });
+  document.getElementById("btn-save-author")?.addEventListener("click", async () => {
+    const name = document.getElementById("ea-name").value.trim();
+    const bio  = document.getElementById("ea-bio").value.trim();
+    if (!name) { showToast("Imię jest wymagane", "error"); return; }
+    await updateDoc(doc(db,"authors",authorId), { name, bio });
+    // also update authorName in all books
+    const booksToUpdate = await getDocs(query(collection(db,"books"), where("authorId","==",authorId)));
+    await Promise.all(booksToUpdate.docs.map(d => updateDoc(doc(db,"books",d.id), { authorName: name })));
+    showToast("Zaktualizowano!", "success");
+    setTimeout(() => location.reload(), 800);
+  });
+
+  document.getElementById("btn-delete-author")?.addEventListener("click", async () => {
+    if (!confirm(`Usunąć autora "${author.name}"? Książki pozostaną.`)) return;
+    await deleteDoc(doc(db,"authors",authorId));
+    showToast("Autor usunięty", "success");
+    setTimeout(() => location.href = "index.html", 800);
+  });
+}
+</script>
+</body>
+</html>

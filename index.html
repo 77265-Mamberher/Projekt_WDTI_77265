@@ -1,0 +1,156 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <title>BookShelf — Twoja biblioteka online</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com"/>
+  <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@700;900&family=Inter:wght@400;500;600&display=swap" rel="stylesheet"/>
+  <link rel="stylesheet" href="css/style.css"/>
+</head>
+<body>
+
+<!-- NAV -->
+<nav>
+  <div class="nav-inner">
+    <a class="nav-brand" href="index.html">📚 <span>Book</span>Shelf</a>
+    <span id="nav-user"></span>
+    <span id="nav-admin-badge">ADMIN</span>
+    <a href="login.html" class="nav-btn ghost" id="btn-login">Zaloguj</a>
+    <button class="nav-btn ghost" id="btn-logout" style="display:none">Wyloguj</button>
+  </div>
+</nav>
+
+<main class="page-wrapper">
+  <div class="container">
+
+    <!-- Hero -->
+    <section class="hero">
+      <h1>Odkrywaj <em>książki</em>, dziel się opiniami</h1>
+      <p>Prosta biblioteka online stworzona przez studentów — dla studentów.</p>
+    </section>
+
+    <!-- Search -->
+    <div class="search-wrap">
+      <input type="text" id="search-input" placeholder="Szukaj tytułu lub autora…"/>
+      <span class="search-icon">🔍</span>
+    </div>
+
+    <!-- Filters -->
+    <div class="filters" id="filters">
+      <button class="filter-btn active" data-cat="">Wszystkie</button>
+    </div>
+
+    <!-- Grid -->
+    <div id="books-container">
+      <div class="loading">Ładowanie książek</div>
+    </div>
+
+  </div>
+</main>
+
+<button class="fab" id="fab-add" title="Dodaj książkę" onclick="location.href='add-book.html'">＋</button>
+
+<script type="module">
+import {
+  db, auth, collection, getDocs, query, orderBy,
+  getCurrentUser, isAdmin, renderStars, getAvgRating, CATEGORIES
+} from "./js/firebase.js";
+
+const user = await getCurrentUser();
+const admin = await isAdmin(user);
+
+if (user) {
+  document.getElementById("nav-user").textContent = user.displayName || user.email;
+  document.getElementById("btn-login").style.display  = "none";
+  document.getElementById("btn-logout").style.display = "inline-block";
+  if (admin) {
+    document.getElementById("nav-admin-badge").style.display = "inline-block";
+    document.getElementById("fab-add").classList.add("visible");
+  }
+}
+document.getElementById("btn-logout").addEventListener("click", async () => {
+  const { signOut } = await import("./js/firebase.js");
+  await signOut(auth);
+  location.reload();
+});
+
+const filtersEl = document.getElementById("filters");
+CATEGORIES.forEach(cat => {
+  const btn = document.createElement("button");
+  btn.className = "filter-btn";
+  btn.dataset.cat = cat;
+  btn.textContent = cat;
+  filtersEl.appendChild(btn);
+});
+
+let allBooks = [];
+const snap = await getDocs(query(collection(db, "books"), orderBy("createdAt", "desc")));
+allBooks = await Promise.all(snap.docs.map(async d => {
+  const data = d.data();
+  const { avg, count } = await getAvgRating(d.id);
+  return { id: d.id, ...data, avg, count };
+}));
+
+function renderBooks(list) {
+  const el = document.getElementById("books-container");
+  if (!list.length) {
+    el.innerHTML = `<div class="empty-state"><div class="emoji">📭</div><p>Nie znaleziono książek.</p></div>`;
+    return;
+  }
+  el.innerHTML = `<div class="books-grid">${list.map(b => `
+    <div class="book-card" onclick="location.href='book.html?id=${b.id}'">
+      <div class="book-cover">
+        ${b.coverUrl
+          ? `<img src="${b.coverUrl}" alt="${b.title}" loading="lazy"/>`
+          : `<span class="no-cover">📖</span>`}
+      </div>
+      <div class="book-info">
+        <div class="book-category">${b.category || "Inne"}</div>
+        <div class="book-title">${b.title}</div>
+        <div class="book-author">
+          <a href="author.html?id=${b.authorId}" onclick="event.stopPropagation()">
+            ${b.authorName || "Nieznany autor"}
+          </a>
+        </div>
+        ${b.count ? renderStars(b.avg, b.count) : `<span style="color:var(--muted);font-size:.8rem">Brak ocen</span>`}
+      </div>
+    </div>`).join("")}
+  </div>`;
+}
+
+renderBooks(allBooks);
+
+// ── Search & filter ───────────────────────────────────────────
+let activeCategory = "";
+let searchQuery    = "";
+
+function applyFilters() {
+  let list = allBooks;
+  if (activeCategory) list = list.filter(b => b.category === activeCategory);
+  if (searchQuery) {
+    const q = searchQuery.toLowerCase();
+    list = list.filter(b =>
+      b.title.toLowerCase().includes(q) ||
+      (b.authorName || "").toLowerCase().includes(q)
+    );
+  }
+  renderBooks(list);
+}
+
+document.getElementById("search-input").addEventListener("input", e => {
+  searchQuery = e.target.value.trim();
+  applyFilters();
+});
+
+filtersEl.addEventListener("click", e => {
+  const btn = e.target.closest(".filter-btn");
+  if (!btn) return;
+  filtersEl.querySelectorAll(".filter-btn").forEach(b => b.classList.remove("active"));
+  btn.classList.add("active");
+  activeCategory = btn.dataset.cat;
+  applyFilters();
+});
+</script>
+</body>
+</html>

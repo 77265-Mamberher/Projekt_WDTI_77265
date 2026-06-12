@@ -1,0 +1,143 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <title>BookShelf — Logowanie</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com"/>
+  <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@700;900&family=Inter:wght@400;500;600&display=swap" rel="stylesheet"/>
+  <link rel="stylesheet" href="css/style.css"/>
+</head>
+<body>
+
+<nav>
+  <div class="nav-inner">
+    <a class="nav-brand" href="index.html">📚 <span>Book</span>Shelf</a>
+  </div>
+</nav>
+
+<main class="page-wrapper">
+  <div class="container">
+    <div class="form-card">
+
+      <div style="text-align:center;margin-bottom:28px">
+        <div style="font-size:2.5rem;margin-bottom:8px">📚</div>
+        <h2 style="margin-bottom:4px">Witaj z powrotem</h2>
+        <p style="color:var(--muted);font-size:.9rem">Zaloguj się lub stwórz konto</p>
+      </div>
+
+      <div class="auth-tabs">
+        <button class="auth-tab active" id="tab-login"    onclick="switchTab('login')">Zaloguj się</button>
+        <button class="auth-tab"        id="tab-register" onclick="switchTab('register')">Rejestracja</button>
+      </div>
+
+      <div id="form-login">
+        <div class="form-group">
+          <label>E-mail</label>
+          <input type="email" id="l-email" placeholder="twoj@email.pl" autocomplete="email"/>
+        </div>
+        <div class="form-group">
+          <label>Hasło</label>
+          <input type="password" id="l-password" placeholder="••••••••" autocomplete="current-password"/>
+        </div>
+        <div id="l-error" class="form-error"></div>
+        <button class="btn btn-primary btn-full" id="btn-login">Zaloguj się</button>
+      </div>
+
+      <div id="form-register" style="display:none">
+        <div class="form-group">
+          <label>Imię (wyświetlane)</label>
+          <input type="text" id="r-name" placeholder="np. Anna Kowalska"/>
+        </div>
+        <div class="form-group">
+          <label>E-mail</label>
+          <input type="email" id="r-email" placeholder="twoj@email.pl" autocomplete="email"/>
+        </div>
+        <div class="form-group">
+          <label>Hasło</label>
+          <input type="password" id="r-password" placeholder="min. 6 znaków" autocomplete="new-password"/>
+        </div>
+        <div id="r-error" class="form-error"></div>
+        <button class="btn btn-primary btn-full" id="btn-register">Stwórz konto</button>
+      </div>
+
+      <p style="text-align:center;color:var(--muted);font-size:.8rem;margin-top:20px">
+        <a href="index.html">← Wróć bez logowania</a>
+      </p>
+
+    </div>
+  </div>
+</main>
+
+<script type="module">
+import {
+  auth,
+  signInWithEmailAndPassword, createUserWithEmailAndPassword, updateProfile,
+  showToast
+} from "./js/firebase.js";
+
+window.switchTab = (tab) => {
+  document.getElementById("form-login").style.display    = tab === "login"    ? "block" : "none";
+  document.getElementById("form-register").style.display = tab === "register" ? "block" : "none";
+  document.getElementById("tab-login").classList.toggle("active",    tab === "login");
+  document.getElementById("tab-register").classList.toggle("active", tab === "register");
+};
+
+document.getElementById("btn-login").addEventListener("click", async () => {
+  const email    = document.getElementById("l-email").value.trim();
+  const password = document.getElementById("l-password").value;
+  const errEl    = document.getElementById("l-error");
+  errEl.style.display = "none";
+
+  if (!email || !password) {
+    errEl.textContent = "Wypełnij wszystkie pola."; errEl.style.display = "block"; return;
+  }
+  try {
+    await signInWithEmailAndPassword(auth, email, password);
+    showToast("Zalogowano!", "success");
+    setTimeout(() => location.href = "index.html", 600);
+  } catch (e) {
+    errEl.textContent = friendlyError(e.code);
+    errEl.style.display = "block";
+  }
+});
+
+document.getElementById("btn-register").addEventListener("click", async () => {
+  const name     = document.getElementById("r-name").value.trim();
+  const email    = document.getElementById("r-email").value.trim();
+  const password = document.getElementById("r-password").value;
+  const errEl    = document.getElementById("r-error");
+  errEl.style.display = "none";
+
+  if (!name || !email || !password) {
+    errEl.textContent = "Wypełnij wszystkie pola."; errEl.style.display = "block"; return;
+  }
+  if (password.length < 6) {
+    errEl.textContent = "Hasło musi mieć co najmniej 6 znaków."; errEl.style.display = "block"; return;
+  }
+  try {
+    const cred = await createUserWithEmailAndPassword(auth, email, password);
+    await updateProfile(cred.user, { displayName: name });
+    showToast("Konto utworzone!", "success");
+    setTimeout(() => location.href = "index.html", 600);
+  } catch (e) {
+    errEl.textContent = friendlyError(e.code);
+    errEl.style.display = "block";
+  }
+});
+
+function friendlyError(code) {
+  const map = {
+    "auth/user-not-found":      "Nie znaleziono konta z tym e-mailem.",
+    "auth/wrong-password":      "Nieprawidłowe hasło.",
+    "auth/email-already-in-use":"Ten e-mail jest już zarejestrowany.",
+    "auth/invalid-email":       "Nieprawidłowy format e-maila.",
+    "auth/too-many-requests":   "Zbyt wiele prób. Spróbuj później.",
+    "auth/weak-password":       "Hasło jest zbyt słabe.",
+    "auth/invalid-credential":  "Nieprawidłowy e-mail lub hasło.",
+  };
+  return map[code] || `Błąd: ${code}`;
+}
+</script>
+</body>
+</html>

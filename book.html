@@ -1,0 +1,228 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <title>BookShelf — Szczegóły książki</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com"/>
+  <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@700;900&family=Inter:wght@400;500;600&display=swap" rel="stylesheet"/>
+  <link rel="stylesheet" href="css/style.css"/>
+</head>
+<body>
+
+<nav>
+  <div class="nav-inner">
+    <a class="nav-brand" href="index.html">📚 <span>Book</span>Shelf</a>
+    <span id="nav-user"></span>
+    <span id="nav-admin-badge">ADMIN</span>
+    <a href="login.html" class="nav-btn ghost" id="btn-login">Zaloguj</a>
+    <button class="nav-btn ghost" id="btn-logout" style="display:none">Wyloguj</button>
+  </div>
+</nav>
+
+<main class="page-wrapper">
+  <div class="container">
+    <a href="index.html" style="color:var(--muted);font-size:.9rem;display:inline-block;margin-bottom:24px">← Wróć do listy</a>
+    <div id="book-detail-root"><div class="loading">Ładowanie</div></div>
+  </div>
+</main>
+
+<script type="module">
+import {
+  db, auth, collection, doc, getDoc, getDocs, addDoc, updateDoc, deleteDoc,
+  query, where, orderBy, serverTimestamp,
+  getCurrentUser, isAdmin, showToast, getAvgRating
+} from "./js/firebase.js";
+
+// ── Helpers ───────────────────────────────────────────────────
+const params = new URLSearchParams(location.search);
+const bookId = params.get("id");
+if (!bookId) location.href = "index.html";
+
+const user  = await getCurrentUser();
+const admin = await isAdmin(user);
+
+// Nav
+if (user) {
+  document.getElementById("nav-user").textContent = user.displayName || user.email;
+  document.getElementById("btn-login").style.display  = "none";
+  document.getElementById("btn-logout").style.display = "inline-block";
+  if (admin) document.getElementById("nav-admin-badge").style.display = "inline-block";
+}
+document.getElementById("btn-logout").addEventListener("click", async () => {
+  const { signOut } = await import("./js/firebase.js");
+  await signOut(auth);
+  location.reload();
+});
+
+// ── Load book ─────────────────────────────────────────────────
+const bookSnap = await getDoc(doc(db, "books", bookId));
+if (!bookSnap.exists()) {
+  document.getElementById("book-detail-root").innerHTML = `<div class="empty-state"><div class="emoji">😕</div><p>Książka nie istnieje.</p></div>`;
+} else {
+  const book = { id: bookSnap.id, ...bookSnap.data() };
+  const { avg, count } = await getAvgRating(bookId);
+
+  // Check user's existing rating
+  let userRating = 0;
+  if (user) {
+    const rSnap = await getDocs(query(collection(db, "ratings"), where("bookId","==",bookId), where("userId","==",user.uid)));
+    if (!rSnap.empty) userRating = rSnap.docs[0].data().score;
+  }
+
+  const fullStars  = Math.round(avg);
+  const starsHtml  = "★".repeat(fullStars) + "☆".repeat(5 - fullStars);
+
+  document.getElementById("book-detail-root").innerHTML = `
+    <div class="book-detail">
+      <div>
+        <div class="book-detail-cover">
+          ${book.coverUrl
+            ? `<img src="${book.coverUrl}" alt="${book.title}"/>`
+            : `<span class="no-cover">📖</span>`}
+        </div>
+        ${admin ? `
+          <div style="margin-top:16px;display:flex;gap:8px;flex-wrap:wrap">
+            <a href="add-book.html?edit=${book.id}" class="btn btn-ghost btn-full">✏️ Edytuj</a>
+            <button onclick="deleteBook()" class="btn btn-danger btn-full">🗑 Usuń książkę</button>
+          </div>` : ""}
+      </div>
+
+      <div>
+        <div class="book-category" style="color:var(--accent2);font-size:.8rem;text-transform:uppercase;letter-spacing:.08em;margin-bottom:8px">
+          ${book.category || "Inne"}
+        </div>
+        <h1 style="margin-bottom:8px">${book.title}</h1>
+        <p style="color:var(--muted);margin-bottom:16px">
+          Autor: <a href="author.html?id=${book.authorId}">${book.authorName || "Nieznany"}</a>
+        </p>
+
+        <div class="book-meta">
+          ${book.year    ? `<div class="meta-chip"><strong>${book.year}</strong> rok</div>` : ""}
+          ${book.pages   ? `<div class="meta-chip"><strong>${book.pages}</strong> stron</div>` : ""}
+          ${book.isbn    ? `<div class="meta-chip">ISBN <strong>${book.isbn}</strong></div>` : ""}
+          ${count ? `<div class="meta-chip">⭐ <strong>${avg.toFixed(1)}</strong> / 5 (${count} ocen)</div>` : `<div class="meta-chip">Brak ocen</div>`}
+        </div>
+
+        ${book.description ? `<p class="book-description" style="margin-top:16px">${book.description}</p>` : ""}
+
+        <hr class="divider"/>
+
+        <!-- Rating -->
+        <div id="rating-section">
+          ${user ? `
+            <p style="font-size:.9rem;color:var(--muted);margin-bottom:8px">
+              ${userRating ? "Twoja ocena:" : "Oceń tę książkę:"}
+            </p>
+            <div class="rating-widget" id="rating-widget">
+              ${[1,2,3,4,5].map(n => `
+                <span class="star ${n <= userRating ? "lit" : ""}" data-score="${n}">★</span>
+              `).join("")}
+            </div>
+            <p id="rating-msg" style="font-size:.8rem;color:var(--success);margin-top:4px;display:${userRating?"block":"none"}">Oceniłeś/aś: ${userRating}/5</p>
+          ` : `<p style="color:var(--muted);font-size:.9rem"><a href="login.html">Zaloguj się</a>, żeby ocenić książkę.</p>`}
+        </div>
+      </div>
+    </div>
+
+    <!-- Comments -->
+    <div class="comments-section">
+      <h3>Komentarze i opinie</h3>
+      ${user ? `
+        <div style="margin-bottom:20px">
+          <textarea id="comment-input" placeholder="Napisz swoją opinię…" rows="3"></textarea>
+          <button class="btn btn-primary" style="margin-top:8px" id="btn-submit-comment">Dodaj komentarz</button>
+        </div>
+      ` : `<p style="color:var(--muted);margin-bottom:20px"><a href="login.html">Zaloguj się</a>, żeby dodać komentarz.</p>`}
+      <div id="comments-list"><div class="loading">Ładowanie komentarzy</div></div>
+    </div>
+  `;
+
+  // ── Rating logic ──────────────────────────────────────────
+  document.getElementById("rating-widget")?.addEventListener("click", async e => {
+    const star = e.target.closest(".star");
+    if (!star) return;
+    const score = parseInt(star.dataset.score);
+    // Save or update rating
+    const existing = await getDocs(query(collection(db,"ratings"), where("bookId","==",bookId), where("userId","==",user.uid)));
+    if (existing.empty) {
+      await addDoc(collection(db,"ratings"), { bookId, userId: user.uid, score, createdAt: serverTimestamp() });
+    } else {
+      await updateDoc(doc(db,"ratings",existing.docs[0].id), { score });
+    }
+    // Update UI stars
+    document.querySelectorAll(".rating-widget .star").forEach((s,i) => {
+      s.classList.toggle("lit", i < score);
+    });
+    const msg = document.getElementById("rating-msg");
+    msg.textContent = `Oceniłeś/aś: ${score}/5`;
+    msg.style.display = "block";
+    showToast("Ocena zapisana!", "success");
+  });
+
+  // ── Delete book ───────────────────────────────────────────
+  window.deleteBook = async () => {
+    if (!confirm("Na pewno usunąć książkę?")) return;
+    await deleteDoc(doc(db,"books",bookId));
+    showToast("Książka usunięta", "success");
+    setTimeout(() => location.href = "index.html", 800);
+  };
+
+  // ── Comments ──────────────────────────────────────────────
+  async function loadComments() {
+    const snap = await getDocs(
+      query(collection(db,"comments"), where("bookId","==",bookId), orderBy("createdAt","asc"))
+    );
+    const el = document.getElementById("comments-list");
+    if (snap.empty) {
+      el.innerHTML = `<div class="empty-state" style="padding:24px"><p>Brak komentarzy. Bądź pierwszy!</p></div>`;
+      return;
+    }
+    el.innerHTML = snap.docs.map(d => {
+      const c = d.data();
+      const ts = c.createdAt?.toDate().toLocaleDateString("pl-PL") || "";
+      const canDelete = user && (user.uid === c.userId || admin);
+      return `
+        <div class="comment" id="comment-${d.id}">
+          <div class="comment-header">
+            <span class="comment-author">${c.authorName || "Anonim"}</span>
+            <span>${ts}</span>
+          </div>
+          <div class="comment-body">${escHtml(c.text)}</div>
+          ${canDelete ? `
+            <div class="comment-actions">
+              <button onclick="deleteComment('${d.id}')">🗑 Usuń</button>
+            </div>` : ""}
+        </div>`;
+    }).join("");
+  }
+
+  window.deleteComment = async (cid) => {
+    await deleteDoc(doc(db,"comments",cid));
+    document.getElementById(`comment-${cid}`)?.remove();
+    showToast("Komentarz usunięty");
+  };
+
+  document.getElementById("btn-submit-comment")?.addEventListener("click", async () => {
+    const input = document.getElementById("comment-input");
+    const text  = input.value.trim();
+    if (!text) return;
+    await addDoc(collection(db,"comments"), {
+      bookId, userId: user.uid,
+      authorName: user.displayName || user.email,
+      text, createdAt: serverTimestamp()
+    });
+    input.value = "";
+    showToast("Komentarz dodany!", "success");
+    loadComments();
+  });
+
+  loadComments();
+}
+
+function escHtml(s) {
+  return s.replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
+}
+</script>
+</body>
+</html>
